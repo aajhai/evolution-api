@@ -29,6 +29,17 @@ import {
   GroupUpdateParticipantDto,
   GroupUpdateSettingDto,
 } from '@api/dto/group.dto';
+import {
+  CommunityAcceptInvite,
+  CommunityCreateDto,
+  CommunityCreateGroupDto,
+  CommunityInviteCode,
+  CommunityJid,
+  CommunityLinkGroupDto,
+  CommunityParticipantsUpdateDto,
+  CommunityRequestParticipantsUpdateDto,
+  CommunitySettingUpdateDto,
+} from '@api/dto/community.dto';
 import { InstanceDto, SetPresenceDto } from '@api/dto/instance.dto';
 import { HandleLabelDto, LabelDto } from '@api/dto/label.dto';
 import {
@@ -4603,6 +4614,171 @@ export class BaileysStartupService extends ChannelStartupService {
       return { groupJid: id.groupJid, leave: true };
     } catch (error) {
       throw new BadRequestException('Unable to leave the group', error.toString());
+    }
+  }
+
+  // ── Community Methods ──────────────────────────────────────────────
+
+  public async communityMetadata(id: CommunityJid) {
+    try {
+      const metadata = await this.client.communityMetadata(id.communityJid);
+      const picture = await this.profilePicture(metadata.id);
+      return {
+        id: metadata.id,
+        subject: metadata.subject,
+        owner: metadata.owner,
+        desc: metadata.desc,
+        size: metadata.participants?.length,
+        participants: metadata.participants,
+        isCommunity: metadata.isCommunity,
+        isCommunityAnnounce: metadata.isCommunityAnnounce,
+        pictureUrl: picture?.profilePictureUrl,
+      };
+    } catch (error) {
+      throw new NotFoundException('Error fetching community metadata', error.toString());
+    }
+  }
+
+  public async communityFetchAllParticipating() {
+    try {
+      const result = await this.client.communityFetchAllParticipating();
+      const communities = [];
+      for (const community of Object.values(result)) {
+        const picture = await this.profilePicture(community.id);
+        communities.push({
+          id: community.id,
+          subject: community.subject,
+          owner: community.owner,
+          desc: community.desc,
+          size: community.participants?.length,
+          isCommunity: community.isCommunity,
+          isCommunityAnnounce: community.isCommunityAnnounce,
+          pictureUrl: picture?.profilePictureUrl,
+        });
+      }
+      return communities;
+    } catch (error) {
+      throw new InternalServerErrorException('Error fetching communities', error.toString());
+    }
+  }
+
+  public async communityFetchLinkedGroups(id: CommunityJid) {
+    try {
+      return await this.client.communityFetchLinkedGroups(id.communityJid);
+    } catch (error) {
+      throw new NotFoundException('Error fetching linked groups', error.toString());
+    }
+  }
+
+  public async communityCreate(data: CommunityCreateDto) {
+    try {
+      return await this.client.communityCreate(data.subject, data.description);
+    } catch (error) {
+      throw new InternalServerErrorException('Error creating community', error.toString());
+    }
+  }
+
+  public async communityCreateGroup(data: CommunityCreateGroupDto) {
+    try {
+      const participants = (await this.whatsappNumber({ numbers: data.participants }))
+        .filter((p) => p.exists)
+        .map((p) => p.jid);
+      return await this.client.communityCreateGroup(data.subject, participants, data.parentCommunityJid);
+    } catch (error) {
+      throw new InternalServerErrorException('Error creating community group', error.toString());
+    }
+  }
+
+  public async communityLeave(id: CommunityJid) {
+    try {
+      await this.client.communityLeave(id.communityJid);
+      return { communityJid: id.communityJid, leave: true };
+    } catch (error) {
+      throw new InternalServerErrorException('Error leaving community', error.toString());
+    }
+  }
+
+  public async communityLinkGroup(data: CommunityLinkGroupDto) {
+    try {
+      await this.client.communityLinkGroup(data.groupJid, data.parentCommunityJid);
+      return { groupJid: data.groupJid, parentCommunityJid: data.parentCommunityJid, status: 'linked' };
+    } catch (error) {
+      throw new InternalServerErrorException('Error linking group to community', error.toString());
+    }
+  }
+
+  public async communityUnlinkGroup(data: CommunityLinkGroupDto) {
+    try {
+      await this.client.communityUnlinkGroup(data.groupJid, data.parentCommunityJid);
+      return { groupJid: data.groupJid, parentCommunityJid: data.parentCommunityJid, status: 'unlinked' };
+    } catch (error) {
+      throw new InternalServerErrorException('Error unlinking group from community', error.toString());
+    }
+  }
+
+  public async communityInviteCode(id: CommunityJid) {
+    try {
+      const code = await this.client.communityInviteCode(id.communityJid);
+      return { inviteUrl: `https://chat.whatsapp.com/${code}`, inviteCode: code };
+    } catch (error) {
+      throw new NotFoundException('No community invite code', error.toString());
+    }
+  }
+
+  public async communityAcceptInvite(data: CommunityAcceptInvite) {
+    try {
+      const communityJid = await this.client.communityAcceptInvite(data.inviteCode);
+      return { accepted: true, communityJid };
+    } catch (error) {
+      throw new BadRequestException('Error accepting community invite', error.toString());
+    }
+  }
+
+  public async communityGetInviteInfo(data: CommunityInviteCode) {
+    try {
+      return await this.client.communityGetInviteInfo(data.inviteCode);
+    } catch (error) {
+      throw new NotFoundException('No community invite info', error.toString());
+    }
+  }
+
+  public async communityParticipantsUpdate(data: CommunityParticipantsUpdateDto) {
+    try {
+      const participants = data.participants.map((p) => createJid(p));
+      const result = await this.client.communityParticipantsUpdate(data.communityJid, participants, data.action);
+      return { updateParticipants: result };
+    } catch (error) {
+      throw new BadRequestException('Error updating community participants', error.toString());
+    }
+  }
+
+  public async communityRequestParticipantsList(id: CommunityJid) {
+    try {
+      return await this.client.communityRequestParticipantsList(id.communityJid);
+    } catch (error) {
+      throw new NotFoundException('Error fetching community participant requests', error.toString());
+    }
+  }
+
+  public async communityRequestParticipantsUpdate(data: CommunityRequestParticipantsUpdateDto) {
+    try {
+      const result = await this.client.communityRequestParticipantsUpdate(
+        data.communityJid,
+        data.participants,
+        data.action,
+      );
+      return result;
+    } catch (error) {
+      throw new BadRequestException('Error updating community participant requests', error.toString());
+    }
+  }
+
+  public async communitySettingUpdate(data: CommunitySettingUpdateDto) {
+    try {
+      await this.client.communitySettingUpdate(data.communityJid, data.setting);
+      return { communityJid: data.communityJid, setting: data.setting, status: 'updated' };
+    } catch (error) {
+      throw new BadRequestException('Error updating community setting', error.toString());
     }
   }
 
